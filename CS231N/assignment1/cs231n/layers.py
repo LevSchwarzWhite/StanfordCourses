@@ -45,7 +45,7 @@ def affine_backward(dout, cache):
     - dw: Gradient with respect to w, of shape (D, M)
     - db: Gradient with respect to b, of shape (M,)
     """
-    x, w, b = cache
+    x, w = cache
     x_flat = x.reshape(x.shape[0], -1)
     dw = x_flat.T @ dout
     db = np.sum(dout, axis=0)
@@ -690,11 +690,13 @@ def softmax_loss(x, y):
     """
     loss, dx = None, None
 
-    ###########################################################################
-    # TODO: Copy over your solution from A1.
-    ###########################################################################
-
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
+    x_shifted = x - np.max(x, axis=1, keepdims=True)
+    Z = np.sum(np.exp(x_shifted), axis=1, keepdims=True)
+    log_probs = x_shifted - np.log(Z)
+    probs = np.exp(log_probs)
+    N = x.shape[0]
+    loss = -np.sum(log_probs[np.arange(N), y]) / N
+    dx = probs.copy()
+    dx[np.arange(N), y] -= 1
+    dx /= N
     return loss, dx
