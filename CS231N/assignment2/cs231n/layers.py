@@ -20,13 +20,8 @@ def affine_forward(x, w, b):
     - cache: (x, w, b)
     """
     out = None
-    ###########################################################################
-    # TODO: Copy over your solution from Assignment 1.                        #
-    ###########################################################################
-
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
+    x_normalized = x.reshape(x.shape[0], -1)
+    out = x_normalized.dot(w) + b
     cache = (x, w, b)
     return out, cache
 
@@ -48,13 +43,11 @@ def affine_backward(dout, cache):
     """
     x, w, b = cache
     dx, dw, db = None, None, None
-    ###########################################################################
-    # TODO: Copy over your solution from Assignment 1.                        #
-    ###########################################################################
-
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
+    x_normalized = x.reshape(x.shape[0], -1)
+    dw = x_normalized.T.dot(dout)
+    db = np.sum(dout, axis=0)
+    dx_normalized = dout.dot(w.T)
+    dx = dx_normalized.reshape(x.shape)
     return dx, dw, db
 
 
@@ -69,13 +62,7 @@ def relu_forward(x):
     - cache: x
     """
     out = None
-    ###########################################################################
-    # TODO: Copy over your solution from Assignment 1.                        #
-    ###########################################################################
-
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
+    out = np.maximum(0, x)
     cache = x
     return out, cache
 
@@ -91,13 +78,7 @@ def relu_backward(dout, cache):
     - dx: Gradient with respect to x
     """
     dx, x = None, cache
-    ###########################################################################
-    # TODO: Copy over your solution from Assignment 1.                        #
-    ###########################################################################
-
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
+    dx = dout * (x > 0)
     return dx
 
 
@@ -164,13 +145,15 @@ def batchnorm_forward(x, gamma, beta, bn_param):
     - cache: A tuple of values needed in the backward pass
     """
     mode = bn_param["mode"]
-    eps = bn_param["eps"]
-    momentum = bn_param["momentum"]
-    running_mean = bn_param["running_mean"]
-    running_var = bn_param["running_var"]
+    eps = bn_param.get("eps", 1e-5)
+    momentum = bn_param.get("momentum", 0.9)
+
+    N, D = x.shape
+    running_mean = bn_param.get("running_mean", np.zeros(D, dtype=x.dtype))
+    running_var = bn_param.get("running_var", np.zeros(D, dtype=x.dtype))
     if mode == 'train':
-        sample_mean = np.mean(x)
-        sample_var = np.var(x)
+        sample_mean = np.mean(x, axis=0)
+        sample_var = np.var(x, axis=0)
         x_normalized = (x - sample_mean) / np.sqrt(sample_var + eps) 
         out = gamma * x_normalized + beta
         running_mean = momentum * running_mean + (1 - momentum) * sample_mean
@@ -178,7 +161,7 @@ def batchnorm_forward(x, gamma, beta, bn_param):
         cache = (x, x_normalized, sample_mean, sample_var, gamma, beta, eps)
     elif mode == 'test':
         x_normalized = (x - running_mean) / np.sqrt(running_var + eps)
-        cache = (x, x_normalized, running_mean, running_var, gamma, beta, eps)
+        cache = None
         out = gamma * x_normalized + beta
     else:
         return ValueError("Invalid forward batchnorm mode '%s'" % mode)
@@ -206,7 +189,14 @@ def batchnorm_backward(dout, cache):
     """
     
     x, x_normalized, sample_mean, sample_var, gamma, beta, eps = cache
-    N = x.shape[0]
+    N, D = x.shape
+    dbeta = np.sum(dout, axis=0)
+    dgamma = np.sum(x_normalized * dout, axis=0)
+    dx_normalized = gamma * dout
+    dvar = np.sum(dx_normalized * (x - sample_mean) * -0.5 * (sample_var + eps) ** (-1.5), axis=0)
+    dmean = np.sum(dx_normalized * -1 / np.sqrt(sample_var + eps), axis=0) + dvar * np.sum(-2 * (x - sample_mean), axis=0) / N
+    dx = dx_normalized / np.sqrt(sample_var + eps) + dvar * 2 * (x - sample_mean) / N + dmean / N
+    
     return dx, dgamma, dbeta
 
 
@@ -259,20 +249,11 @@ def layernorm_forward(x, gamma, beta, ln_param):
     """
     out, cache = None, None
     eps = ln_param.get("eps", 1e-5)
-    ###########################################################################
-    # TODO: Implement the training-time forward pass for layer norm.          #
-    # Normalize the incoming data, and scale and  shift the normalized data   #
-    #  using gamma and beta.                                                  #
-    # HINT: this can be done by slightly modifying your training-time         #
-    # implementation of  batch normalization, and inserting a line or two of  #
-    # well-placed code. In particular, can you think of any matrix            #
-    # transformations you could perform, that would enable you to copy over   #
-    # the batch norm code and leave it almost unchanged?                      #
-    ###########################################################################
-
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
+    mean = np.mean(x, axis=1, keepdims=True)
+    var = np.var(x, axis=1, keepdims=True)
+    x_normalized = (x - mean) / np.sqrt(var + eps)
+    out = gamma * x_normalized + beta
+    cache = (x, x_normalized, gamma, beta, mean, var, eps)
     return out, cache
 
 
@@ -292,17 +273,22 @@ def layernorm_backward(dout, cache):
     - dbeta: Gradient with respect to shift parameter beta, of shape (D,)
     """
     dx, dgamma, dbeta = None, None, None
-    ###########################################################################
-    # TODO: Implement the backward pass for layer norm.                       #
-    #                                                                         #
-    # HINT: this can be done by slightly modifying your training-time         #
-    # implementation of batch normalization. The hints to the forward pass    #
-    # still apply!                                                            #
-    ###########################################################################
-
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
+    x, x_normalized, gamma, beta, mean, var, eps = cache
+    
+    N, D = dout.shape
+    
+    dbeta = np.sum(dout, axis=0)
+    dgamma = np.sum(dout * x_normalized, axis=0)
+    
+    dhatx = dout * gamma
+    
+    std_inv = 1.0 / np.sqrt(var + eps)
+    
+    term1 = D * dhatx
+    term2 = np.sum(dhatx, axis=1, keepdims=True)
+    term3 = x_normalized * np.sum(dhatx * x_normalized, axis=1, keepdims=True)
+    
+    dx = (std_inv / D) * (term1 - term2 - term3)
     return dx, dgamma, dbeta
 
 
@@ -335,24 +321,16 @@ def dropout_forward(x, dropout_param):
 
     mask = None
     out = None
+    
+    N, D = x.shape
 
     if mode == "train":
-        #######################################################################
-        # TODO: Implement training phase forward pass for inverted dropout.   #
-        # Store the dropout mask in the mask variable.                        #
-        #######################################################################
-        pass
-        #######################################################################
-        #                           END OF YOUR CODE                          #
-        #######################################################################
+        mask = (np.random.rand(*x.shape) < p) / p
+        out = x * mask
+        
     elif mode == "test":
-        #######################################################################
-        # TODO: Implement the test phase forward pass for inverted dropout.   #
-        #######################################################################
-        pass
-        #######################################################################
-        #                            END OF YOUR CODE                         #
-        #######################################################################
+        out = x
+        mask = None
 
     cache = (dropout_param, mask)
     out = out.astype(x.dtype, copy=False)
@@ -372,13 +350,7 @@ def dropout_backward(dout, cache):
 
     dx = None
     if mode == "train":
-        #######################################################################
-        # TODO: Implement training phase backward pass for inverted dropout   #
-        #######################################################################
-        pass
-        #######################################################################
-        #                          END OF YOUR CODE                           #
-        #######################################################################
+        dx = dout * mask
     elif mode == "test":
         dx = dout
     return dx
@@ -410,15 +382,18 @@ def conv_forward_naive(x, w, b, conv_param):
       W' = 1 + (W + 2 * pad - WW) / stride
     - cache: (x, w, b, conv_param)
     """
-    out = None
-    ###########################################################################
-    # TODO: Implement the convolutional forward pass.                         #
-    # Hint: you can use the function np.pad for padding.                      #
-    ###########################################################################
-
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
+    stride, pad = conv_param["stride"], conv_param["pad"]
+    N, C, H, W = x.shape
+    F, C, HH, WW = w.shape
+    out = np.zeros((N, F, 1 + (H + 2 * pad - HH) // stride, 1 + (W + 2 * pad - WW) // stride))
+    for f in range(F):
+        for i in range(N):
+            for j in range(0, H + 2 * pad - HH + 1, stride):
+                for k in range(0, W + 2 * pad - WW + 1, stride):
+                    x_padded = np.pad(x[i], ((0,0), (pad, pad), (pad, pad)), mode='constant')
+                    out[i, f, j // stride, k // stride] = np.sum(x_padded[:, j:j+HH, k:k+WW] * w[f]) + b[f]
+    
+    
     cache = (x, w, b, conv_param)
     return out, cache
 
@@ -435,14 +410,25 @@ def conv_backward_naive(dout, cache):
     - dw: Gradient with respect to w
     - db: Gradient with respect to b
     """
-    dx, dw, db = None, None, None
-    ###########################################################################
-    # TODO: Implement the convolutional backward pass.                        #
-    ###########################################################################
-
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
+    dx, dw, db = np.zeros_like(cache[0]), np.zeros_like(cache[1]), np.zeros_like(cache[2])
+    x, w, b, conv_param = cache
+    stride, pad = conv_param["stride"], conv_param["pad"]
+    N, C, H, W = x.shape
+    F, C, HH, WW = w.shape
+    dx = np.zeros_like(x)
+    dw = np.zeros_like(w)
+    db = np.zeros_like(b)
+    for f in range(F):
+        for i in range(N):
+            for j in range(0, H + 2 * pad - HH + 1, stride):
+                for k in range(0, W + 2 * pad - WW + 1, stride):
+                    x_padded = np.pad(x[i], ((0, 0), (pad, pad), (pad, pad)), mode='constant')
+                    dx_padded = np.zeros_like(x_padded)
+                    dx_padded[:, j:j+HH, k:k+WW] += w[f] * dout[i, f, j // stride, k // stride]
+                    dw[f] += x_padded[:, j:j+HH, k:k+WW] * dout[i, f, j // stride, k // stride]
+                    db[f] += dout[i, f, j // stride, k // stride]
+                    dx[i] += dx_padded[:, pad:pad+H, pad:pad+W]
+                    
     return dx, dw, db
 
 
@@ -466,14 +452,15 @@ def max_pool_forward_naive(x, pool_param):
       W' = 1 + (W - pool_width) / stride
     - cache: (x, pool_param)
     """
-    out = None
-    ###########################################################################
-    # TODO: Implement the max-pooling forward pass                            #
-    ###########################################################################
-
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
+    N, C, H, W = x.shape
+    pool_height, pool_width, stride = pool_param['pool_height'], pool_param['pool_width'], pool_param['stride']
+    out = np.zeros((N, C, 1 + (H - pool_height) // stride, 1 + (W - pool_width) // stride))
+    for i in range(N):
+        for j in range(C):
+            for k in range(0, H - pool_height + 1, stride):
+                for l in range(0, W - pool_width + 1, stride):
+                    out[i, j, k // stride, l // stride] = np.max(x[i, j, k:k+pool_height, l:l+pool_width])
+     
     cache = (x, pool_param)
     return out, cache
 
@@ -488,14 +475,19 @@ def max_pool_backward_naive(dout, cache):
     Returns:
     - dx: Gradient with respect to x
     """
-    dx = None
-    ###########################################################################
-    # TODO: Implement the max-pooling backward pass                           #
-    ###########################################################################
+    x, pool_param = cache
+    N, C, H, W = x.shape
+    dx = np.zeros_like(x)
+    pool_height, pool_width, stride = pool_param['pool_height'], pool_param['pool_width'], pool_param['stride']
+    for i in range(N):
+        for j in range(C):
+            for k in range(0, H - pool_height + 1, stride):
+                for l in range(0, W - pool_width + 1, stride):
+                    x_pool = x[i, j, k:k+pool_height, l:l+pool_width]
+                    max_val = np.max(x_pool)
+                    mask = (x_pool == max_val)
+                    dx[i, j, k:k+pool_height, l:l+pool_width] += mask * dout[i, j, k // stride, l // stride]
 
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
     return dx
 
 
@@ -520,20 +512,14 @@ def spatial_batchnorm_forward(x, gamma, beta, bn_param):
     - out: Output data, of shape (N, C, H, W)
     - cache: Values needed for the backward pass
     """
-    out, cache = None, None
+    N, C, H, W = x.shape
+    
+    x_flat = x.transpose(0, 2, 3, 1).reshape(-1, C)
+    
+    out_flat, cache = batchnorm_forward(x_flat, gamma, beta, bn_param)
 
-    ###########################################################################
-    # TODO: Implement the forward pass for spatial batch normalization.       #
-    #                                                                         #
-    # HINT: You can implement spatial batch normalization by calling the      #
-    # vanilla version of batch normalization you implemented above.           #
-    # Your implementation should be very short; ours is less than five lines. #
-    ###########################################################################
-
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
-
+    out = out_flat.reshape(N, H, W, C).transpose(0, 3, 1, 2)
+    
     return out, cache
 
 
@@ -550,18 +536,14 @@ def spatial_batchnorm_backward(dout, cache):
     - dbeta: Gradient with respect to shift parameter, of shape (C,)
     """
     dx, dgamma, dbeta = None, None, None
-
-    ###########################################################################
-    # TODO: Implement the backward pass for spatial batch normalization.      #
-    #                                                                         #
-    # HINT: You can implement spatial batch normalization by calling the      #
-    # vanilla version of batch normalization you implemented above.           #
-    # Your implementation should be very short; ours is less than five lines. #
-    ###########################################################################
-
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
+    
+    N, C, H, W = dout.shape
+    
+    dout_flat = dout.transpose(0, 2, 3, 1).reshape(-1, C)
+    
+    dx_flat, dgamma, dbeta = batchnorm_backward(dout_flat, cache)
+    
+    dx = dx_flat.reshape(N, H, W, C).transpose(0, 3, 1, 2)
 
     return dx, dgamma, dbeta
 
@@ -588,17 +570,22 @@ def spatial_groupnorm_forward(x, gamma, beta, G, gn_param):
     """
     out, cache = None, None
     eps = gn_param.get("eps", 1e-5)
-    ###########################################################################
-    # TODO: Implement the forward pass for spatial group normalization.       #
-    # This will be extremely similar to the layer norm implementation.        #
-    # In particular, think about how you could transform the matrix so that   #
-    # the bulk of the code is similar to both train-time batch normalization  #
-    # and layer normalization!                                                #
-    ###########################################################################
-
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
+    
+    N, C, H, W = x.shape
+    
+    x_grouped = x.reshape(N, G, C // G, H, W)
+    
+    mean = np.mean(x_grouped, axis=(2, 3, 4), keepdims=True)
+    var = np.var(x_grouped, axis=(2, 3, 4), keepdims=True)
+    
+    x_normalized_grouped = (x_grouped - mean) / np.sqrt(var + eps)
+    
+    x_normalized = x_normalized_grouped.reshape(N, C, H, W)
+    
+    out = x_normalized * gamma + beta
+    
+    cache = (x_grouped, x_normalized, gamma, beta, G, mean, var, eps)
+    
     return out, cache
 
 
@@ -615,13 +602,30 @@ def spatial_groupnorm_backward(dout, cache):
     - dbeta: Gradient with respect to shift parameter, of shape (1, C, 1, 1)
     """
     dx, dgamma, dbeta = None, None, None
-
-    ###########################################################################
-    # TODO: Implement the backward pass for spatial group normalization.      #
-    # This will be extremely similar to the layer norm implementation.        #
-    ###########################################################################
-
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
+    
+    N, C, H, W = dout.shape
+    
+    x_grouped, x_normalized, gamma, beta, G, mean, var, eps = cache
+    
+    dbeta = np.sum(dout, axis=(0, 2, 3), keepdims=True)
+    dgamma = np.sum(dout * x_normalized, axis=(0, 2, 3), keepdims=True)
+    
+    dx_normalized = dout * gamma
+    
+    dx_normalized_grouped = dx_normalized.reshape(N, G, C // G, H, W)
+    
+    M = (C // G) * H * W
+    std_inv = 1. / np.sqrt(var + eps)
+    
+    sum_dx_norm = np.sum(dx_normalized_grouped, axis=(2, 3, 4), keepdims=True)
+    
+    sum_dx_norm_dot_x_sum = np.sum(dx_normalized_grouped * x_normalized.reshape(N, G, C // G, H, W), 
+                                   axis=(2, 3, 4), keepdims=True)
+    
+    x_norm_grouped = x_normalized.reshape(N, G, C // G, H, W)
+    
+    dx_grouped = std_inv / M * (M * dx_normalized_grouped - sum_dx_norm - x_norm_grouped * sum_dx_norm_dot_x_sum)
+    
+    dx = dx_grouped.reshape(N, C, H, W)
+    
     return dx, dgamma, dbeta
