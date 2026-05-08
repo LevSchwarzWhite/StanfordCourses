@@ -118,34 +118,14 @@ class CaptioningRNN:
         W_vocab, b_vocab = self.params["W_vocab"], self.params["b_vocab"]
 
         loss = 0.0
-        ############################################################################
-        # TODO: Implement the forward pass for the CaptioningRNN.                  #
-        # In the forward pass you will need to do the following:                   #
-        # (1) Use an affine transformation to compute the initial hidden state     #
-        #     from the image features. This should produce an array of shape (N, H)#
-        # (2) Use a word embedding layer to transform the words in captions_in     #
-        #     from indices to vectors, giving an array of shape (N, T, W).         #
-        # (3) Use either a vanilla RNN or LSTM (depending on self.cell_type) to    #
-        #     process the sequence of input word vectors and produce hidden state  #
-        #     vectors for all timesteps, producing an array of shape (N, T, H).    #
-        # (4) Use a (temporal) affine transformation to compute scores over the    #
-        #     vocabulary at every timestep using the hidden states, giving an      #
-        #     array of shape (N, T, V).                                            #
-        # (5) Use (temporal) softmax to compute loss using captions_out, ignoring  #
-        #     the points where the output word is <NULL> using the mask above.     #
-        #                                                                          #       
-        # Please ensure that your implementation is agnostic of the input tensors  #
-        # data types.                                                              #
-        #                                                                          #
-        # Do not worry about regularizing the weights or their gradients!          #
-        #                                                                          #
-        # You also don't have to implement the backward pass.                      #
-        ############################################################################
-
-        ############################################################################
-        #                             END OF YOUR CODE                             #
-        ############################################################################
-
+        
+        if self.cell_type == "rnn":
+            h = rnn_forward(word_embedding_forward(captions_in, W_embed), affine_forward(features, W_proj, b_proj), Wx, Wh, b)
+            scores = temporal_affine_forward(h, W_vocab, b_vocab)
+            loss = temporal_softmax_loss(scores, captions_out, mask)
+        else:
+            pass
+        
         return loss
 
     def sample(self, features, max_length=30):
@@ -180,33 +160,19 @@ class CaptioningRNN:
         W_embed = self.params["W_embed"]
         Wx, Wh, b = self.params["Wx"], self.params["Wh"], self.params["b"]
         W_vocab, b_vocab = self.params["W_vocab"], self.params["b_vocab"]
-
-        ###########################################################################
-        # TODO: Implement test-time sampling for the model. You will need to      #
-        # initialize the hidden state of the RNN by applying the learned affine   #
-        # transform to the input image features. The first word that you feed to  #
-        # the RNN should be the <START> token; its value is stored in the         #
-        # variable self._start. At each timestep you will need to do to:          #
-        # (1) Embed the previous word using the learned word embeddings           #
-        # (2) Make an RNN step using the previous hidden state and the embedded   #
-        #     current word to get the next hidden state.                          #
-        # (3) Apply the learned affine transformation to the next hidden state to #
-        #     get scores for all words in the vocabulary                          #
-        # (4) Select the word with the highest score as the next word, writing it #
-        #     (the word index) to the appropriate slot in the captions variable   #
-        #                                                                         #
-        # For simplicity, you do not need to stop generating after an <END> token #
-        # is sampled, but you can if you want to.                                 #
-        #                                                                         #
-        # HINT: You will not be able to use the rnn_forward or lstm_forward       #
-        # functions; you'll need to call rnn_step_forward or lstm_step_forward in #
-        # a loop.                                                                 #
-        #                                                                         #
-        # NOTE: we are still working over minibatches in this function. Also if   #
-        # you are using an LSTM, initialize the first cell state to zeros.        #
-        ###########################################################################
-
-        ############################################################################
-        #                             END OF YOUR CODE                             #
-        ############################################################################
+        
+        if self.cell_type == "rnn":
+            prev_h = affine_forward(features, W_proj, b_proj)
+            prev_word = self._start * torch.ones((N,), dtype=torch.long)
+            for t in range(max_length):
+                word_embed = word_embedding_forward(prev_word.unsqueeze(1), W_embed).squeeze(1)
+                next_h = rnn_step_forward(word_embed, prev_h, Wx, Wh, b)
+                scores = affine_forward(next_h, W_vocab, b_vocab)
+                next_word = torch.argmax(scores, dim=1)
+                captions[:, t] = next_word
+                prev_h = next_h
+                prev_word = next_word
+        else:
+            pass
+        
         return captions

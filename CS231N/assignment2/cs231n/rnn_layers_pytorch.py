@@ -39,14 +39,7 @@ def rnn_step_forward(x, prev_h, Wx, Wh, b):
     Returns a tuple of:
     - next_h: Next hidden state, of shape (N, H)
     """
-    next_h = None
-    ##############################################################################
-    # TODO: Implement a single forward step for the vanilla RNN.                 #
-    ##############################################################################
-
-    ##############################################################################
-    #                               END OF YOUR CODE                             #
-    ##############################################################################
+    next_h = torch.tanh(x @ Wx + prev_h @ Wh + b)
     return next_h
 
 
@@ -67,16 +60,14 @@ def rnn_forward(x, h0, Wx, Wh, b):
     Returns a tuple of:
     - h: Hidden states for the entire timeseries, of shape (N, T, H)
     """
-    h = None
-    ##############################################################################
-    # TODO: Implement forward pass for a vanilla RNN running on a sequence of    #
-    # input data. You should use the rnn_step_forward function that you defined  #
-    # above. You can use a for loop to help compute the forward pass.            #
-    ##############################################################################
-
-    ##############################################################################
-    #                               END OF YOUR CODE                             #
-    ##############################################################################
+    N, T, D = x.shape
+    H = h0.shape[1]
+    h = torch.zeros((N, T, H), device=x.device, dtype=x.dtype)
+    prev_h = h0
+    for t in range(T):
+        h_t = rnn_step_forward(x[:, t, :], prev_h, Wx, Wh, b)
+        h[:, t, :] = h_t
+        prev_h = h_t
     return h
 
 
@@ -89,22 +80,13 @@ def word_embedding_forward(x, W):
 
     Inputs:
     - x: Integer array of shape (N, T) giving indices of words. Each element idx
-      of x muxt be in the range 0 <= idx < V.
+      of x must be in the range 0 <= idx < V.
     - W: Weight matrix of shape (V, D) giving word vectors for all words.
 
     Returns a tuple of:
     - out: Array of shape (N, T, D) giving word vectors for all input words.
     """
-    out = None
-    ##############################################################################
-    # TODO: Implement the forward pass for word embeddings.                      #
-    #                                                                            #
-    # HINT: This can be done in one line using Pytorch's array indexing.         #
-    ##############################################################################
-
-    ##############################################################################
-    #                               END OF YOUR CODE                             #
-    ##############################################################################
+    out = W[x]
     return out
 
 
