@@ -110,17 +110,55 @@ def lstm_step_forward(x, prev_h, prev_c, Wx, Wh, b):
     - next_h: Next hidden state, of shape (N, H)
     - next_c: Next cell state, of shape (N, H)
     """
+    x = torch.from_numpy(x)
+    prev_h = torch.from_numpy(prev_h)
+    prev_c = torch.from_numpy(prev_c)
+    Wx = torch.from_numpy(Wx)
+    Wh = torch.from_numpy(Wh)
+    b = torch.from_numpy(b)
+    
     next_h, next_c = None, None
-    #############################################################################
-    # TODO: Implement the forward pass for a single timestep of an LSTM.        #
-    # You may want to use the numerically stable sigmoid implementation above.  #
-    #############################################################################
+    
+    a = x @ Wx + prev_h @ Wh + b
+    ai, af, ao, ag = torch.split(a, a.shape[1] // 4, dim=1)
+    i, f, o, g = torch.sigmoid(ai), torch.sigmoid(af), torch.sigmoid(ao), torch.tanh(ag)
+    next_c = f * prev_c + i * g
+    next_h = o * torch.tanh(next_c)
+    cache = (x, prev_h, prev_c, Wx, Wh, b, i, f, o, g, next_c)
+    
+    next_h = next_h.numpy()
+    next_c = next_c.numpy()
 
-    ##############################################################################
-    #                               END OF YOUR CODE                             #
-    ##############################################################################
+    return next_h, next_c, cache
 
-    return next_h, next_c
+def lstm_step_backward(dnext_h, dnext_c, cache):
+    "lstm was removed from the 2026 assignment, so there is no documentation for this function."
+    x, prev_h, prev_c, Wx, Wh, b, i, f, o, g, next_c = cache
+    
+    inputs = (x, prev_h, prev_c, Wx, Wh, b)
+    for tensor in inputs:
+        tensor.requires_grad_(True)
+        
+    a = x @ Wx + prev_h @ Wh + b
+    ai, af, ao, ag = torch.split(a, a.shape[1] // 4, dim=1)
+    i, f, o, g = torch.sigmoid(ai), torch.sigmoid(af), torch.sigmoid(ao), torch.tanh(ag)
+    next_c = f * prev_c + i * g
+    next_h = o * torch.tanh(next_c)
+    
+    grad_h = torch.from_numpy(dnext_h)
+    grad_c = torch.from_numpy(dnext_c)
+    
+    loss = (next_h * grad_h).sum() + (next_c * grad_c).sum()
+    loss.backward()
+    
+    dx = x.grad.numpy()
+    dh = prev_h.grad.numpy()
+    dc = prev_c.grad.numpy()
+    dWx = Wx.grad.numpy()
+    dWh = Wh.grad.numpy()
+    db = b.grad.numpy()
+    
+    return dx, dh, dc, dWx, dWh, db
 
 
 def lstm_forward(x, h0, Wx, Wh, b):
@@ -144,17 +182,59 @@ def lstm_forward(x, h0, Wx, Wh, b):
     Returns a tuple of:
     - h: Hidden states for all timesteps of all sequences, of shape (N, T, H)
     """
-    h = None
-    #############################################################################
-    # TODO: Implement the forward pass for an LSTM over an entire timeseries.   #
-    # You should use the lstm_step_forward function that you just defined.      #
-    #############################################################################
+    x = torch.from_numpy(x)
+    h0 = torch.from_numpy(h0)
+    Wx = torch.from_numpy(Wx)
+    Wh = torch.from_numpy(Wh)
+    b = torch.from_numpy(b)
+    
+    N, T, D = x.shape
+    H = h0.shape[1]
+    h = torch.zeros((N, T, H), device=x.device, dtype=x.dtype)
+    prev_h = h0
+    prev_c = torch.zeros_like(h0)	
+    for t in range(T):
+        h_t, c_t, _ = lstm_step_forward(x[:, t, :], prev_h, prev_c, Wx, Wh, b)
+        h[:, t, :] = h_t
+        prev_h = h_t
+        prev_c = c_t
+        
+    cache = (x, h0, Wx, Wh, b, h)
+    return h, cache
 
-    ##############################################################################
-    #                               END OF YOUR CODE                             #
-    ##############################################################################
-
-    return h
+def lstm_backward(dout, cache):
+	"lstm was removed from the 2026 assignment, so there is no documentation for this function."
+ 
+	x, h0, Wx, Wh, b, h = cache
+	N, T, D = x.shape
+	_, H = h.shape
+	
+	x_t = torch.from_numpy(x).requires_grad_(True)
+	prev_h_t = torch.from_numpy(h).requires_grad_(True)
+	Wx_t = torch.from_numpy(Wx).requires_grad_(True)
+	Wh_t = torch.from_numpy(Wh).requires_grad_(True)
+	b_t = torch.from_numpy(b).requires_grad_(True)
+ 
+	h_list = []
+	h_cur = prev_h_t
+	c_cur = torch.zeros_like(h_cur, devaice=x.device, dtype=x.dtype)
+ 
+	for t in range(T):
+		h_cur, c_cur, _ = lstm_step_forward(x_t[:, t, :], h_cur, c_cur, Wx_t, Wh_t, b_t)
+		h_list.append(h_cur)
+  
+	next_h_t = torch.stack(h_list, dim=1)
+ 
+	external_grad = torch.from_numpy(dout)
+	next_h_t.backward(external_grad)
+ 
+	dx = x_t.grad.numpy()
+	dh = prev_h_t.grad.numpy()
+	dWx = Wx_t.grad.numpy()
+	dWh = Wh_t.grad.numpy()
+	db = b_t.grad.numpy()
+ 
+	return dx, dh, dWx, dWh, db
 
 
 def temporal_affine_forward(x, w, b):
